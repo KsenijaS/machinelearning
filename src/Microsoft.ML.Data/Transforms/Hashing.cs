@@ -11,6 +11,7 @@ using Microsoft.ML;
 using Microsoft.ML.CommandLine;
 using Microsoft.ML.Data;
 using Microsoft.ML.Internal.Utilities;
+using Microsoft.ML.Model.OnnxConverter;
 using Microsoft.ML.Runtime;
 using Microsoft.ML.Transforms;
 
@@ -780,7 +781,7 @@ namespace Microsoft.ML.Transforms
             };
         }
 
-        private sealed class Mapper : OneToOneMapperBase
+        private sealed class Mapper : OneToOneMapperBase, ISaveAsOnnx
         {
             private sealed class ColInfo
             {
@@ -834,6 +835,52 @@ namespace Microsoft.ML.Transforms
             }
 
             protected override Delegate MakeGetter(DataViewRow input, int iinfo, Func<int, bool> activeOutput, out Action disposer) => _parent.GetGetterCore(input, iinfo, out disposer);
+
+            private bool SaveAsOnnxCore(OnnxContext ctx, int iinfo, string srcVarisble, string dstVariable)
+            {
+                string opType;
+
+                opType = "MurmurHash3";
+                string murmurOutput = ctx.AddIntermediateVariable(_types[iinfo], "MurmurOutput", true);
+                var murmurNode = ctx.CreateNode(opType, srcVarisble, murmurOutput, ctx.GetNodeName(opType));
+                murmurNode.AddAttribute("positive", 1);
+                var seed = _parent._columns[iinfo].Seed;
+                murmurNode.AddAttribute("seed", seed);
+
+                opType = "Or";
+                var mask = (1U << _parent._columns[iinfo].NumberOfBits) - 1;
+                string m = ctx.AddInitializer(mask);
+                string orOutput = ctx.AddIntermediateVariable(_types[iinfo], "orOutput", true);
+                var orNode = ctx.CreateNode(opType, new[] { murmurOutput, m}, new[] { orOutput}, ctx.GetNodeName(opType));
+
+                opType = "Add";
+                string one = ctx.AddInitializer(1);
+                var addNode = ctx.CreateNode(opType, new[] { orOutput, one }, new[] { orOutput }, ctx.GetNodeName(opType));
+
+                return true;
+            }
+
+            void ISaveAsOnnx.SaveAsOnnx(OnnxContext ctx)
+            {
+                Host.CheckValue(ctx, nameof(ctx));
+                for (int iinfo = 0; iinfo < _parent._columns.Length; ++iinfo)
+                {
+                    var colName = _parent._columns[iinfo].Name;
+                    string inputColumnName = InputSchema[colName].Name;
+                    if (!ctx.ContainsColumn(inputColumnName))
+                    {
+                        ctx.RemoveColumn(inputColumnName, false);
+                        continue;
+                    }
+
+                    if (!SaveAsOnnxCore(ctx, iinfo, ctx.GetVariableName(inputColumnName), ctx.AddIntermediateVariable(_types[iinfo], inputColumnName)))
+                    {
+                        ctx.RemoveColumn(inputColumnName, true);
+                    }
+                }
+            }
+
+            bool ICanSaveOnnx.CanSaveOnnx(OnnxContext ctx) => true;
         }
 
         private abstract class InvertHashHelper

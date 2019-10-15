@@ -189,6 +189,8 @@ namespace Microsoft.ML.Tests
         {
             [VectorType(3)]
             public float[] Features { get; set; }
+            public string Education { get; set; }
+            public uint EducationOneHotHashEncoded { get; set; }
         }
 
         [Fact]
@@ -304,6 +306,40 @@ namespace Microsoft.ML.Tests
             Done();
         }
 
+        [Fact]
+        public void HashTransformerTest()
+        {
+            var mlContext = new MLContext();
+
+            var samples = new[]
+            {
+                new DataPoint {Education = "0-5yrs"},
+                new DataPoint {Education = "0-5yrs"},
+                new DataPoint {Education = "6-11yrs"},
+                new DataPoint {Education = "6-11yrs"},
+                new DataPoint {Education = "11-15yrs"}
+            };
+
+            IDataView data = mlContext.Data.LoadFromEnumerable(samples);
+
+            var pipeline = mlContext.Transforms.Categorical.OneHotHashEncoding(
+                "EducationOneHotHashEncoded", "Education", OneHotEncodingEstimator.OutputKind.Key, 3);
+
+            var model = pipeline.Fit(data);
+            var hashEncodedData = model.Transform(data);
+            var onnxModel = mlContext.Model.ConvertToOnnxProtobuf(model, data);
+
+            var subDir = Path.Combine("..", "..", "BaselineOutput", "Common", "Onnx", "Transforms");
+            var onnxFileName = "HashTransformer.onnx";
+            var onnxTextName = "HashTransformer.txt";
+            var onnxModelPath = GetOutputPath(onnxFileName);
+            var onnxTextPath = GetOutputPath(subDir, onnxTextName);
+
+            SaveOnnxModel(onnxModel, onnxModelPath, onnxTextPath);
+            CheckEquality(subDir, onnxTextName);
+            Done();
+        }
+        
         [Fact]
         public void InitializerCreationTest()
         {
