@@ -285,6 +285,18 @@ namespace Microsoft.ML.Internal.Utilities
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint MixHashv2(uint hash)
+        {
+            hash ^= 4;
+            hash ^= hash >> 16;
+            hash *= 0x85ebca6b;
+            hash ^= hash >> 13;
+            hash *= 0xc2b2ae35;
+            hash ^= hash >> 16;
+            return hash;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static uint Rotate(uint x, int r)
         {
             return (x << r) | (x >> (32 - r));
